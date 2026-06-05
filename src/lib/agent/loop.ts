@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { toolRegistry } from "./registry";
-import { withRetry, withTimeout } from "@/lib/util/with-retry";
-import { cache } from "@/lib/util/cache";
+import { withRetry, withTimeout } from "@/lib/with-retry";
+import { cache } from "@/lib/cache";
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
 const MAX_HOPS = 6;

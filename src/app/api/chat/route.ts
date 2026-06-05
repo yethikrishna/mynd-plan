@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { runAgent, type ChatMessage } from "@/lib/agent/loop";
-import { rateLimit } from "@/lib/util/rate-limit";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
