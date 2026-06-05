@@ -1,8 +1,12 @@
 services:
   - type: web
     name: mynd-plan
-    env: docker
+    env: node
     plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
     envVars:
       - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DATABASE_URL
         sync: false

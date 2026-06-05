@@ -1,15 +1,15 @@
-import type { Metadata } from 'next';
-import './globals.css';
+import "./globals.css";
+import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: 'mynd-plan',
-  description: 'An AI product-navigator agent — Brief architecture pattern.',
+  title: "mynd-plan — AI Product Navigator",
+  description: "An original AI product navigator agent. Built by the Brief team.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="font-sans text-ink antialiased">{children}</body>
+      <body>{children}</body>
     </html>
   );
 }
