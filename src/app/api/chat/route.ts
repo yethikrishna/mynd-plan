@@ -1,63 +1,71 @@
 import { NextRequest } from "next/server";
-import { runAgent } from "@/lib/agent/loop";
-import { defaultRegistry } from "@/lib/agent/registry";
-import { db, dbEnabled } from "@/lib/db/client";
-import { conversations, messages as messagesTable } from "@/lib/db/schema";
+import { runAgent, type ChatMessage } from "@/lib/agent/loop";
+import { rateLimit } from "@/lib/util/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * Streaming chat endpoint.
+ *
+ * Robustness wired in:
+ *  - rateLimit(): fixed-window limiter keyed by client IP (429 on exceed)
+ *  - runAgent(): multi-hop loop with retry + timeout + tool-result caching
+ *  - SSE: events flushed as they arrive so the UI renders tokens live
+ */
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  const body = await req.json();
-  const incoming = body.messages || [];
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip") ||
+    "anonymous";
 
-  if (!apiKey) {
-    return Response.json({
-      error:
-        "ANTHROPIC_API_KEY is not set. Add it to your deployment environment to activate the agent. The UI is fully deployed and working.",
+  const limit = rateLimit(ip, { limit: 30, windowMs: 60_000 });
+  if (!limit.ok) {
+    return new Response(
+      JSON.stringify({ error: "Rate limit exceeded. Try again shortly." }),
+      {
+        status: 429,
+        headers: {
+          "Content-Type": "application/json",
+          "Retry-After": String(Math.ceil(limit.retryAfterMs / 1000)),
+        },
+      }
+    );
+  }
+
+  let body: { messages?: ChatMessage[] };
+  try {
+    body = await req.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
     });
   }
 
-  const registry = defaultRegistry();
-  const encoder = new TextEncoder();
-  const lastUserText = (() => {
-    const u = [...incoming].reverse().find((m: any) => m.role === "user");
-    return typeof u?.content === "string" ? u.content : "";
-  })();
+  const messages = body.messages ?? [];
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return new Response(JSON.stringify({ error: "messages[] required" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
+  const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (o: unknown) =>
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(o)}\n\n`));
-      let assistantText = "";
+      const send = (event: unknown) =>
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       try {
-        for await (const event of runAgent(incoming, registry, apiKey)) {
-          if (event.type === "text") assistantText += event.delta;
+        for await (const event of runAgent(messages)) {
           send(event);
         }
-      } catch (err: any) {
-        send({ type: "error", message: err?.message || "Agent failed" });
+      } catch (err) {
+        send({
+          type: "error",
+          message: err instanceof Error ? err.message : "Stream failed",
+        });
       } finally {
-        if (dbEnabled && db) {
-          try {
-            const convoId =
-              body.conversationId ||
-              (
-                await db
-                  .insert(conversations)
-                  .values({ title: lastUserText.slice(0, 60) || "New conversation" })
-                  .returning({ id: conversations.id })
-              )[0].id;
-            await db.insert(messagesTable).values([
-              { conversationId: convoId, role: "user", content: lastUserText },
-              { conversationId: convoId, role: "assistant", content: assistantText },
-            ]);
-            send({ type: "conversation", id: convoId });
-          } catch {
-            // persistence is best-effort and optional
-          }
-        }
         controller.close();
       }
     },
