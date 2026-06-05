@@ -63,19 +63,22 @@ export async function* runAgent(
   for (let hop = 0; hop < MAX_HOPS; hop++) {
     let response: Anthropic.Message;
     try {
+      // Explicitly type the non-streaming call as Promise<Message>. Without this
+      // annotation the union return of messages.create (Message | Stream<...>)
+      // flows through the withTimeout/withRetry generics and widens back to the
+      // union at the assignment site, even though stream:false is passed.
+      const createMessage = (): Promise<Anthropic.Message> =>
+        client.messages.create({
+          model: MODEL,
+          max_tokens: 2048,
+          system: SYSTEM_PROMPT,
+          tools,
+          messages,
+          stream: false,
+        });
+
       response = await withRetry(
-        () =>
-          withTimeout(
-            client.messages.create({
-              model: MODEL,
-              max_tokens: 2048,
-              system: SYSTEM_PROMPT,
-              tools,
-              messages,
-              stream: false,
-            }),
-            LLM_TIMEOUT_MS
-          ),
+        () => withTimeout(createMessage(), LLM_TIMEOUT_MS),
         { retries: 2 }
       );
     } catch (err) {
