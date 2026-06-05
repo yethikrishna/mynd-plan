@@ -121,7 +121,7 @@ export default function Chat() {
                         className="text-xs rounded-xl bg-black/5 dark:bg-white/10 px-3 py-1.5 font-mono"
                       >
                         <span className="opacity-60">
-                          {t.result === undefined ? "\u23f3 calling " : "\u2713 "}
+                          {t.result === undefined ? "calling " : "done "}
                         </span>
                         {t.name}
                       </motion.div>
@@ -129,7 +129,7 @@ export default function Chat() {
                   </div>
                 )}
                 <p className="whitespace-pre-wrap leading-relaxed">
-                  {m.text || (busy && m.role === "assistant" ? "\u2026" : "")}
+                  {m.text || (busy && m.role === "assistant" ? "..." : "")}
                 </p>
               </div>
             </motion.div>
@@ -144,15 +144,16 @@ export default function Chat() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}
-            placeholder="Ask mynd anything\u2026"
+            placeholder="Ask mynd anything..."
             className="flex-1 bg-transparent px-4 py-2 outline-none"
           />
           <button
             onClick={send}
             disabled={busy}
+            aria-label="Send"
             className="rounded-full bg-blue-500 text-white w-10 h-10 flex items-center justify-center disabled:opacity-40 transition hover:scale-105 active:scale-95"
           >
-            \u2191
+            &uarr;
           </button>
         </div>
       </div>
