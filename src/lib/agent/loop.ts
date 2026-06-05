@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { toolRegistry } from "./registry";
 import { withRetry, withTimeout } from "@/lib/with-retry";
-import { cache } from "@/lib/cache";
+import { cached } from "@/lib/cache";
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
 const MAX_HOPS = 6;
@@ -35,7 +35,7 @@ answer. Be concise, direct, and helpful. Never invent tool results.`;
  *
  * - Wraps every model call in withRetry (exponential backoff + jitter) and
  *   withTimeout so a hung upstream never hangs the request.
- * - Caches identical tool inputs (TTL + in-flight dedupe) via the tool layer.
+ * - Caches identical tool inputs (TTL + in-flight dedupe) via the cache layer.
  * - Loops on stop_reason === "tool_use" up to MAX_HOPS, executing tools and
  *   feeding results back to the model.
  *
@@ -109,7 +109,7 @@ export async function* runAgent(
 
       try {
         const cacheKey = `tool:${block.name}:${JSON.stringify(block.input)}`;
-        const result = await cache.dedupe(cacheKey, 30_000, () =>
+        const result = await cached(cacheKey, 30_000, () =>
           toolRegistry.execute(block.name, block.input)
         );
         toolResults.push({
