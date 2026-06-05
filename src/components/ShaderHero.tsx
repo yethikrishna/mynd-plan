@@ -225,7 +225,7 @@ export default function ShaderHero() {
       className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
       style={{
         background:
-          "radial-gradient(120% 120% at 50% 0%, #5b6ef5 0%, #9e66f9 45%, #f59 edb 100%)",
+          "radial-gradient(120% 120% at 50% 0%, #5b6ef5 0%, #9e66f9 45%, #f59edb 100%)",
       }}
     />
   );
