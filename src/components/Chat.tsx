@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { parseAgentEvent } from "@/lib/agent/types";
 
 const ease = [0.16, 1, 0.3, 1] as const;
 
@@ -66,23 +67,43 @@ export default function Chat() {
         for (const p of parts) {
           const line = p.replace(/^data: /, "").trim();
           if (!line) continue;
-          let evt: any;
+          let raw: unknown;
           try {
-            evt = JSON.parse(line);
+            raw = JSON.parse(line);
           } catch {
             continue;
           }
-          if (evt.type === "text") {
-            updateLast((m) => ({ ...m, text: m.text + evt.delta }));
-          } else if (evt.type === "tool_start") {
-            updateLast((m) => ({ ...m, tools: [...m.tools, { name: evt.name, input: evt.input }] }));
-          } else if (evt.type === "tool_result") {
-            updateLast((m) => {
-              const tools = [...m.tools];
-              const i = tools.findIndex((t) => t.name === evt.name && t.result === undefined);
-              if (i >= 0) tools[i] = { ...tools[i], result: evt.result };
-              return { ...m, tools };
-            });
+          const evt = parseAgentEvent(raw);
+          if (!evt) continue;
+          switch (evt.type) {
+            case "text":
+              updateLast((m) => ({ ...m, text: m.text + evt.delta }));
+              break;
+            case "tool_start":
+              updateLast((m) => ({
+                ...m,
+                tools: [...m.tools, { name: evt.name, input: evt.input }],
+              }));
+              break;
+            case "tool_result":
+              updateLast((m) => {
+                const tools = [...m.tools];
+                const i = tools.findIndex(
+                  (t) => t.name === evt.name && t.result === undefined
+                );
+                if (i >= 0) tools[i] = { ...tools[i], result: evt.result };
+                return { ...m, tools };
+              });
+              break;
+            case "error":
+              updateLast((m) => ({
+                ...m,
+                text: m.text || "Error: " + evt.message,
+              }));
+              break;
+            case "conversation":
+            case "done":
+              break;
           }
         }
       }
