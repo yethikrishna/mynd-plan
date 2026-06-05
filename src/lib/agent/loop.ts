@@ -72,6 +72,7 @@ export async function* runAgent(
               system: SYSTEM_PROMPT,
               tools,
               messages,
+              stream: false,
             }),
             LLM_TIMEOUT_MS
           ),
