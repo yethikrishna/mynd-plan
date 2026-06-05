@@ -19,15 +19,16 @@ export async function POST(req: NextRequest) {
     req.headers.get("x-real-ip") ||
     "anonymous";
 
-  const limit = rateLimit(ip, { limit: 30, windowMs: 60_000 });
+  const limit = rateLimit(ip, 30, 60_000);
   if (!limit.ok) {
+    const retryAfterSec = Math.max(1, Math.ceil((limit.resetAt - Date.now()) / 1000));
     return new Response(
       JSON.stringify({ error: "Rate limit exceeded. Try again shortly." }),
       {
         status: 429,
         headers: {
           "Content-Type": "application/json",
-          "Retry-After": String(Math.ceil(limit.retryAfterMs / 1000)),
+          "Retry-After": String(retryAfterSec),
         },
       }
     );
