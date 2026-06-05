@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { toolRegistry } from "./registry";
+import { defaultRegistry } from "./registry";
+import type { AgentEvent } from "./types";
 import { withRetry, withTimeout } from "@/lib/with-retry";
 import { cached } from "@/lib/cache";
 
@@ -12,12 +13,8 @@ export type ChatMessage = {
   content: string;
 };
 
-export type StreamEvent =
-  | { type: "text"; text: string }
-  | { type: "tool_call"; name: string; input: unknown }
-  | { type: "tool_result"; name: string; ok: boolean }
-  | { type: "done" }
-  | { type: "error"; message: string };
+// Re-export the canonical event type so consumers can import from one place.
+export type { AgentEvent } from "./types";
 
 function getClient(): Anthropic | null {
   const key = process.env.ANTHROPIC_API_KEY;
@@ -39,16 +36,17 @@ answer. Be concise, direct, and helpful. Never invent tool results.`;
  * - Loops on stop_reason === "tool_use" up to MAX_HOPS, executing tools and
  *   feeding results back to the model.
  *
- * Yields StreamEvents the API route serializes as SSE.
+ * Yields AgentEvents (the canonical contract in ./types) which the API route
+ * serializes as SSE and Chat.tsx consumes directly.
  */
 export async function* runAgent(
   history: ChatMessage[]
-): AsyncGenerator<StreamEvent> {
+): AsyncGenerator<AgentEvent> {
   const client = getClient();
   if (!client) {
     yield {
       type: "text",
-      text: "\u26a0\ufe0f No ANTHROPIC_API_KEY set. Add it in your deployment\u2019s environment variables to enable the agent. The UI and the rest of the app work without it.",
+      delta: "\u26a0\ufe0f No ANTHROPIC_API_KEY set. Add it in your deployment\u2019s environment variables to enable the agent. The UI and the rest of the app work without it.",
     };
     yield { type: "done" };
     return;
@@ -59,7 +57,8 @@ export async function* runAgent(
     content: m.content,
   }));
 
-  const tools = toolRegistry.toAnthropicTools();
+  const registry = defaultRegistry();
+  const tools = registry.toAnthropicTools();
 
   for (let hop = 0; hop < MAX_HOPS; hop++) {
     let response: Anthropic.Message;
@@ -90,7 +89,7 @@ export async function* runAgent(
     // Surface any text the model produced this hop.
     for (const block of response.content) {
       if (block.type === "text" && block.text) {
-        yield { type: "text", text: block.text };
+        yield { type: "text", delta: block.text };
       }
     }
 
@@ -105,27 +104,32 @@ export async function* runAgent(
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of response.content) {
       if (block.type !== "tool_use") continue;
-      yield { type: "tool_call", name: block.name, input: block.input };
+      yield { type: "tool_start", name: block.name, input: block.input };
 
       try {
+        const tool = registry.get(block.name);
+        if (!tool) {
+          throw new Error(`Unknown tool: ${block.name}`);
+        }
         const cacheKey = `tool:${block.name}:${JSON.stringify(block.input)}`;
         const result = await cached(cacheKey, 30_000, () =>
-          toolRegistry.execute(block.name, block.input)
+          tool.execute(block.input)
         );
         toolResults.push({
           type: "tool_result",
           tool_use_id: block.id,
-          content: typeof result === "string" ? result : JSON.stringify(result),
+          content: result,
         });
-        yield { type: "tool_result", name: block.name, ok: true };
+        yield { type: "tool_result", name: block.name, result };
       } catch (err) {
+        const message = err instanceof Error ? err.message : "Tool failed";
         toolResults.push({
           type: "tool_result",
           tool_use_id: block.id,
           is_error: true,
-          content: err instanceof Error ? err.message : "Tool failed",
+          content: message,
         });
-        yield { type: "tool_result", name: block.name, ok: false };
+        yield { type: "tool_result", name: block.name, result: `error: ${message}` };
       }
     }
 
@@ -134,7 +138,7 @@ export async function* runAgent(
 
   yield {
     type: "text",
-    text: "\n\n(Reached max tool hops \u2014 stopping to avoid a loop.)",
+    delta: "\n\n(Reached max tool hops \u2014 stopping to avoid a loop.)",
   };
   yield { type: "done" };
 }
